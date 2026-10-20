@@ -781,7 +781,7 @@ function sheetHTML(doc){
         <tr class="tot"><td>총 납부하실 금액</td><td></td><td></td><td class="num">${won(calc.pay)}</td><td></td></tr>
       </tbody></table>
     ${note?`<div class="note blue">${note}</div>`:''}
-    <div class="foot">※ 납부기한은 매월 말일이며, 말일이 공휴일인 경우 익일 영업일까지입니다.${mode==='main'?'<br>※ 전월 정산잔액은 계약마스터의 \'정산잔액\' 열에서 불러옵니다. 양수는 미수금, 음수는 과입금입니다.':''}</div>
+    <div class="foot">※ 납부기한은 매월 말일이며, 말일이 공휴일인 경우 익일 영업일까지입니다.</div>
     ${cfg.co?`<div class="company">${esc(cfg.co)}</div>`:''}
     ${cfg.notice?`<div class="notice">${esc(cfg.notice)}</div>`:''}
   </article>`;
@@ -1002,7 +1002,6 @@ async function makeXlsx(list, mode){
       // 꼬리말
       let r = rTot + 2;
       const foot = ['※ 납부기한은 매월 말일이며, 말일이 공휴일인 경우 익일 영업일까지입니다.'];
-      if(mode!=='sep') foot.push("※ 전월 정산잔액은 계약마스터의 '정산잔액' 열에서 불러옵니다. 양수는 미수금, 음수는 과입금입니다.");
       foot.forEach(line=>{
         ws.mergeCells(`A${r}:E${r}`);
         const cell = ws.getCell(`A${r}`);
