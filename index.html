@@ -119,6 +119,10 @@ table.extras td{padding:5px 8px;border-bottom:1px solid var(--line-soft);}
 table.extras select,table.extras input{width:100%;border:1px solid var(--input-line);background:var(--input);border-radius:3px;padding:5px 7px;font-size:13px;}
 table.extras input.num{text-align:right;font-variant-numeric:tabular-nums;}
 table.extras td.tax{font-size:12px;color:var(--sub);white-space:nowrap;}
+table.extras td.fixamt{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+table.extras input.edited{border-color:var(--navy);font-weight:600;}
+.sub-h{font-size:12px;font-weight:700;color:var(--sub);margin:12px 0 6px;}
+.hint{font-size:12px;color:var(--sub);margin-top:6px;}
 .empty{color:var(--sub);font-size:13px;padding:8px 0;}
 
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;}
@@ -314,7 +318,7 @@ details.guide>summary span{font-weight:400;color:var(--sub);font-size:13px;}
           <thead><tr>
             <th style="width:34px"></th><th>매장 · 업체</th><th>확인</th>
             <th class="num">임대료(고정)</th><th class="num">관리비-고정</th><th class="num">전월 정산잔액</th>
-            <th class="num">청구 합계</th><th style="width:150px">실비 · 개별작업</th>
+            <th class="num">청구 합계</th><th style="width:150px">상세 · 실비</th>
           </tr></thead>
           <tbody id="listBody"></tbody>
         </table>
@@ -564,6 +568,9 @@ const vRent = c => { const e=ed(c); return e.rent===undefined?c.rent:toNum(e.ren
 const vMgmt = c => { const e=ed(c); return e.mgmt===undefined?c.mgmt:toNum(e.mgmt); };
 const vBal  = c => { const e=ed(c); return e.bal===undefined?c.bal:toNum(e.bal); };
 const liveExtras = c => ed(c).extras.filter(x=>x.name && toNum(x.amt)!==0);
+/* 부가세 직접 입력값: 비어 있으면 undefined → 자동 계산 */
+const ovr = v => (v===undefined || v===null || v==='') ? undefined : toNum(v);
+const hasVatAdj = c => { const e=ed(c); return ovr(e.rentVat)!==undefined || ovr(e.mgmtVat)!==undefined || e.extras.some(x=>ovr(x.vat)!==undefined); };
 
 /* 청구서 한 장의 계산 결과 */
 function build(c, mode){           // mode: 'main' | 'sep'
@@ -571,14 +578,14 @@ function build(c, mode){           // mode: 'main' | 'sep'
   const lines = [];
   if(mode==='main'){
     const r=vRent(c), m=vMgmt(c);
-    if(r) lines.push({sec:'고정비', name:'임대료(고정)', amt:r, free:false, note:''});
-    if(m) lines.push({sec:'고정비', name:'관리비-고정', amt:m, free:false, note:''});
-    if(e.mode==='with') liveExtras(c).forEach(x=>lines.push({sec:'실비', name:x.name, amt:toNum(x.amt), free:freeOf(x), note:x.note||''}));
+    if(r) lines.push({sec:'고정비', name:'임대료(고정)', amt:r, free:false, vatO:ovr(e.rentVat), note:e.rentNote||''});
+    if(m) lines.push({sec:'고정비', name:'관리비-고정', amt:m, free:false, vatO:ovr(e.mgmtVat), note:e.mgmtNote||''});
+    if(e.mode==='with') liveExtras(c).forEach(x=>lines.push({sec:'실비', name:x.name, amt:toNum(x.amt), free:freeOf(x), vatO:ovr(x.vat), note:x.note||''}));
   }else{
-    liveExtras(c).forEach(x=>lines.push({sec:'실비', name:x.name, amt:toNum(x.amt), free:freeOf(x), note:x.note||''}));
+    liveExtras(c).forEach(x=>lines.push({sec:'실비', name:x.name, amt:toNum(x.amt), free:freeOf(x), vatO:ovr(x.vat), note:x.note||''}));
   }
   let sup=0, vat=0;
-  lines.forEach(l=>{ l.vat = vatOf(l.free, l.amt); l.sum = l.amt + l.vat; sup+=l.amt; vat+=l.vat; });
+  lines.forEach(l=>{ l.vat = l.vatO!==undefined ? l.vatO : vatOf(l.free, l.amt); l.sum = l.amt + l.vat; sup+=l.amt; vat+=l.vat; });
   const sum = sup+vat;
   const bal = mode==='main' ? vBal(c) : 0;      // 미수금은 고정비 청구서에만
   return {lines, sup, vat, sum, bal, pay:Math.max(0, sum+bal), carry: sum+bal<0 ? -(sum+bal) : 0};
@@ -652,7 +659,7 @@ function renderList(){
         <td class="num"><input class="amt ${e.mgmt!==undefined?'edited':''}" data-f="mgmt" data-i="${i}" value="${won(vMgmt(c))}"></td>
         <td class="num"><input class="amt ${e.bal!==undefined?'edited':''}" data-f="bal" data-i="${i}" value="${won(vBal(c))}"></td>
         <td class="total" data-tot="${i}">${won(rowTotal(c))}</td>
-        <td><button class="btn ghost mini" data-open="${i}">실비 ${nx?nx+'건':'추가'}</button>
+        <td><button class="btn ghost mini" data-open="${i}">상세${nx?' · 실비 '+nx+'건':''}${hasVatAdj(c)?' · 조정':''}</button>
             <button class="btn ghost mini" data-x1="${i}">엑셀</button></td></tr>`;
       if(e.open) html += detailRow(c,i);
     });
@@ -668,25 +675,41 @@ function renderList(){
 }
 function detailRow(c,i){
   const e=ed(c);
+  const vIn = (attr, v, free, amt) => {
+    const o = ovr(v);
+    return `<input class="num ${o!==undefined?'edited':''}" ${attr} value="${o!==undefined?won(o):''}" placeholder="자동 ${won(vatOf(free,amt))}">`;
+  };
+  const fixed = [['rent','임대료(고정)',vRent(c)],['mgmt','관리비-고정',vMgmt(c)]].map(([k,n,amt])=>`<tr>
+    <td>${n}</td>
+    <td class="fixamt" data-fs="${k}" data-i="${i}">${won(amt)}</td>
+    <td>${vIn(`data-fv="${k}" data-i="${i}"`, e[k+'Vat'], false, amt)}</td>
+    <td><input data-fn="${k}" data-i="${i}" value="${esc(e[k+'Note']||'')}" placeholder="예: 10/15~10/31 일할 계산"></td></tr>`).join('');
   const rows = e.extras.map((x,j)=>`<tr>
     <td><input list="itemNames" data-ex="name" data-i="${i}" data-j="${j}" value="${esc(x.name||'')}" placeholder="항목 고르기 또는 직접 입력"></td>
     <td><select data-ex="tax" data-i="${i}" data-j="${j}">
       <option value="과세" ${freeOf(x)?'':'selected'}>과세</option>
       <option value="면세" ${freeOf(x)?'selected':''}>면세</option></select></td>
     <td><input class="num" data-ex="amt" data-i="${i}" data-j="${j}" value="${x.amt?won(toNum(x.amt)):''}" placeholder="금액"></td>
+    <td>${vIn(`data-ex="vat" data-i="${i}" data-j="${j}"`, x.vat, freeOf(x), toNum(x.amt))}</td>
     <td><input data-ex="note" data-i="${i}" data-j="${j}" value="${esc(x.note||'')}" placeholder="비고"></td>
     <td><button class="btn ghost mini" data-del="${i}" data-j="${j}">삭제</button></td></tr>`).join('');
   const r = (v,label) => `<label><input type="radio" name="mode${i}" data-mode="${v}" data-i="${i}" ${e.mode===v?'checked':''}> ${label}</label>`;
   return `<tr class="detail" data-detail="${i}"><td colspan="8">
-    <div class="extra-head">
-      <strong>${esc(c.store)} · ${esc(c.tenant)} 실비 항목</strong>
+    <div class="extra-head"><strong>${esc(c.store)} · ${esc(c.tenant)} 항목 상세</strong></div>
+    <div class="sub-h">고정비</div>
+    <table class="extras"><thead><tr><th style="width:30%">항목</th><th style="width:110px;text-align:right">공급가액</th>
+      <th style="width:130px">부가세</th><th>비고 (청구서에 표시)</th></tr></thead>
+      <tbody>${fixed}</tbody></table>
+    <div class="extra-head mt">
+      <span class="sub-h" style="margin:0">실비</span>
       <span class="togs">${r('with','고정비 청구서에 함께')}${r('sep','실비만 별도 청구서로')}${r('hold','이번 달 청구 안 함')}</span>
     </div>
-    <table class="extras"><thead><tr><th style="width:30%">항목</th><th style="width:88px">과세구분</th>
-      <th style="width:22%">금액(공급가액)</th><th>비고</th><th style="width:60px"></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="empty">아직 실비 항목이 없습니다.</td></tr>'}</tbody></table>
+    <table class="extras"><thead><tr><th style="width:26%">항목</th><th style="width:88px">과세구분</th>
+      <th style="width:16%">금액(공급가액)</th><th style="width:130px">부가세</th><th>비고</th><th style="width:60px"></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="empty">아직 실비 항목이 없습니다.</td></tr>'}</tbody></table>
+    <div class="hint">고정비 공급가액은 위 목록에서 고칩니다. 부가세 칸을 비워 두면 공급가액의 10%로 자동 계산되고, 직접 입력하면 공급가액을 바꿔도 입력한 값이 그대로 유지됩니다.</div>
     <div class="row mt">
-      <button class="btn ghost mini" data-add="${i}">＋ 항목 추가</button>
+      <button class="btn ghost mini" data-add="${i}">＋ 실비 항목 추가</button>
       <button class="btn ghost mini" data-x2="${i}">실비 빈 양식 엑셀</button>
       <button class="btn ghost mini" data-close="${i}">닫기</button>
     </div></td></tr>`;
@@ -707,7 +730,7 @@ $('listBody').addEventListener('change', e=>{
   const t=e.target, d=t.dataset;
   if(d.pick!==undefined){ const c=contracts[+d.pick]; ed(c).picked=t.checked; saveEdits(); renderList(); renderOut(); return; }
   if(d.mode){ const c=contracts[+d.i]; ed(c).mode=d.mode; saveEdits(); renderOut(); refreshTotal(+d.i); return; }
-  if(d.ex==='tax'){ const c=contracts[+d.i]; ed(c).extras[+d.j].tax=t.value; saveEdits(); renderOut(); refreshTotal(+d.i); return; }
+  if(d.ex==='tax'){ const c=contracts[+d.i]; ed(c).extras[+d.j].tax=t.value; saveEdits(); renderList(); renderOut(); return; }
   if(d.ex==='name'){
     const c=contracts[+d.i], x=ed(c).extras[+d.j];
     x.name=t.value.trim(); x.tax=defTax(x.name);
@@ -717,8 +740,16 @@ $('listBody').addEventListener('change', e=>{
 let liveT;
 $('listBody').addEventListener('input', e=>{
   const t=e.target, d=t.dataset;
-  if(d.f){ const c=contracts[+d.i]; ed(c)[d.f]=toNum(t.value); t.classList.add('edited'); }
-  else if(d.ex==='amt'){ const c=contracts[+d.i]; ed(c).extras[+d.j].amt=toNum(t.value); }
+  const box = $('listBody');
+  if(d.f){ const c=contracts[+d.i]; ed(c)[d.f]=toNum(t.value); t.classList.add('edited');
+    if(d.f!=='bal'){
+      const ph=box.querySelector(`[data-fv="${d.f}"][data-i="${d.i}"]`); if(ph) ph.placeholder='자동 '+won(vatOf(false,toNum(t.value)));
+      const fs=box.querySelector(`[data-fs="${d.f}"][data-i="${d.i}"]`); if(fs) fs.textContent=won(toNum(t.value)); } }
+  else if(d.fv){ const c=contracts[+d.i]; const v=t.value.trim(); ed(c)[d.fv+'Vat']= v==='' ? '' : toNum(v); t.classList.toggle('edited', v!==''); }
+  else if(d.fn){ const c=contracts[+d.i]; ed(c)[d.fn+'Note']=t.value; }
+  else if(d.ex==='amt'){ const c=contracts[+d.i], x=ed(c).extras[+d.j]; x.amt=toNum(t.value);
+    const ph=box.querySelector(`[data-ex="vat"][data-i="${d.i}"][data-j="${d.j}"]`); if(ph) ph.placeholder='자동 '+won(vatOf(freeOf(x),toNum(t.value))); }
+  else if(d.ex==='vat'){ const c=contracts[+d.i]; const v=t.value.trim(); ed(c).extras[+d.j].vat= v==='' ? '' : toNum(v); t.classList.toggle('edited', v!==''); }
   else if(d.ex==='note'){ const c=contracts[+d.i]; ed(c).extras[+d.j].note=t.value; }
   else return;
   refreshTotal(+d.i);
@@ -728,6 +759,7 @@ $('listBody').addEventListener('blur', e=>{
   const t=e.target, d=t.dataset;
   if(d.f) t.value = won(toNum(t.value));
   else if(d.ex==='amt'){ const n=toNum(t.value); t.value = n ? won(n) : ''; }
+  else if(d.fv || d.ex==='vat'){ const v=t.value.trim(); t.value = v==='' ? '' : won(toNum(v)); }
 }, true);
 function refreshTotal(i){
   const cell = $('listBody').querySelector('[data-tot="'+i+'"]');
@@ -802,9 +834,11 @@ function renderOut(){
   const chk = picked().filter(c=>assess(c).mark);
   const out = contracts.filter(c=>inScope(c) && !ed(c).picked);
   const lost = picked().filter(c=>liveExtras(c).length && ed(c).mode==='hold');
+  const adj = picked().filter(hasVatAdj);
   $('flags').innerHTML =
     (chk.length?`<b>확인 필요 ${chk.length}곳</b> — 발행 전에 금액을 확인하세요.<ul>${chk.map(c=>`<li>${esc(c.store)} · ${esc(c.tenant)} (${esc(assess(c).why)})</li>`).join('')}</ul>`:'확인 필요한 계약이 없습니다.')
     + (lost.length?`<br><b>실비를 '이번 달 청구 안 함'으로 둔 계약 ${lost.length}곳</b> — 청구하려면 함께 또는 별도로 바꾸세요: ${lost.map(c=>esc(c.store)+' · '+esc(c.tenant)).join(', ')}`:'')
+    + (adj.length?`<br><b>부가세를 직접 수정한 계약 ${adj.length}곳</b> — 공급가액을 바꿨다면 부가세도 다시 확인하세요: ${adj.map(c=>esc(c.store)+' · '+esc(c.tenant)).join(', ')}`:'')
     + (out.length?`<br>선택하지 않은 계약 ${out.length}곳: ${out.slice(0,6).map(c=>esc(c.store)+' · '+esc(c.tenant)).join(', ')}${out.length>6?' 외 '+(out.length-6)+'곳':''}`:'');
   const n = docs.length;
   $('pdfBtn').disabled = !n; $('printBtn').disabled = !n; $('xlsxBtn').disabled = !picked().length;
@@ -884,8 +918,8 @@ async function makeXlsx(list, mode){
     list.forEach(c=>{
       const ex = liveExtras(c).map(x=>({name:x.name, free:freeOf(x), note:x.note||''}));
       const rows = mode==='sep' ? ex
-        : [vRent(c)?{name:'임대료(고정)',free:false,note:''}:null,
-           vMgmt(c)?{name:'관리비-고정',free:false,note:''}:null,
+        : [vRent(c)?{name:'임대료(고정)',free:false,note:ed(c).rentNote||''}:null,
+           vMgmt(c)?{name:'관리비-고정',free:false,note:ed(c).mgmtNote||''}:null,
            ...(ed(c).mode==='with'?ex:[])].filter(Boolean);
       const items = rows.length?rows:[{name:'',free:false,note:''},{name:'',free:false,note:''},
                                       {name:'',free:false,note:''},{name:'',free:false,note:''}];
