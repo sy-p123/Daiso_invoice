@@ -318,7 +318,7 @@ details.guide>summary span{font-weight:400;color:var(--sub);font-size:13px;}
           <thead><tr>
             <th style="width:34px"></th><th>매장 · 업체</th><th>확인</th>
             <th class="num">임대료(고정)</th><th class="num">관리비-고정</th><th class="num">전월 정산잔액</th>
-            <th class="num">청구 합계</th><th style="width:150px">상세 · 실비</th>
+            <th class="num">청구 합계</th><th style="width:190px">상세 · 실비</th>
           </tr></thead>
           <tbody id="listBody"></tbody>
         </table>
@@ -659,7 +659,7 @@ function renderList(){
         <td class="num"><input class="amt ${e.mgmt!==undefined?'edited':''}" data-f="mgmt" data-i="${i}" value="${won(vMgmt(c))}"></td>
         <td class="num"><input class="amt ${e.bal!==undefined?'edited':''}" data-f="bal" data-i="${i}" value="${won(vBal(c))}"></td>
         <td class="total" data-tot="${i}">${won(rowTotal(c))}</td>
-        <td><button class="btn ghost mini" data-open="${i}">상세${nx?' · 실비 '+nx+'건':''}${hasVatAdj(c)?' · 조정':''}</button>
+        <td><button class="btn ghost mini" style="white-space:nowrap" data-open="${i}">상세${nx?' · 실비 '+nx+'건':''}${hasVatAdj(c)?' · 조정':''}</button>
             <button class="btn ghost mini" data-x1="${i}">엑셀</button></td></tr>`;
       if(e.open) html += detailRow(c,i);
     });
